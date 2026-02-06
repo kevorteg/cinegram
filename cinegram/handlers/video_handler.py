@@ -18,7 +18,7 @@ from cinegram.utils.helpers import schedule_deletion
 
 # --- REFACTORED SHARED LOGIC ---
 
-async def process_movie_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, message, video, search_title, extracted_year=None):
+async def process_movie_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, message, video, search_title, extracted_year=None, attempted_ai=False):
     """
     Shared logic to process a movie with a given title/year.
     Used by both automatic video_entry and manual handle_manual_correction.
@@ -37,10 +37,37 @@ async def process_movie_upload(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # --- 2. VALIDATION ---
     if not tmdb_data:
+        # --- FALLBACK: AI DEEP SEARCH (Last Resort) ---
+        if not attempted_ai:
+             logger.info(f"TMDB failed for '{search_title}'. Attempting AI Fallback...")
+             await message.reply_text("🤔 No encontré eso... Probando con **IA (Deep Search)** para leer mejor... 🤖")
+             
+             # Construct context for AI
+             caption = message.caption or ""
+             filename = getattr(video, 'file_name', None) or "Unknown"
+             text_context = f"Filename: {filename}. Caption: {caption}. Previous search '{search_title}' failed."
+             
+             from cinegram.services.ai_service import AiService
+             ai_data = AiService.extract_metadata(text_context)
+             
+             if ai_data:
+                 new_title = ai_data['title']
+                 new_year = ai_data.get('year')
+                 logger.info(f"AI Fallback found: {new_title} ({new_year})")
+                 
+                 # RECURSE with attempted_ai=True to prevent infinite loop
+                 await process_movie_upload(
+                     update, context, message, video,
+                     search_title=new_title,
+                     extracted_year=new_year,
+                     attempted_ai=True
+                 )
+                 return
+
         msg_fail = await message.reply_text(
-            f"🚫 **Cancelado:** No encontré nada en TMDB para '{search_title}'.\n"
-            "El archivo no se ha publicado.\n\n"
-            "👉 **Solución:** Responde a este mensaje con el **Nombre Correcto** (y año opcional) para buscarlo manualmente."
+             f"🚫 **Cancelado:** No encontré nada en TMDB para '{search_title}'.\n"
+             "El archivo no se ha publicado.\n\n"
+             "👉 **Solución:** Responde a este mensaje con el **Nombre Correcto** (y año opcional) para buscarlo manualmente."
         )
         return
 
