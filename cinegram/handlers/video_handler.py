@@ -139,8 +139,15 @@ async def process_movie_upload(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
     # Success
+    # Success
     msg_ok = await message.reply_text(f"✅ **Publicado:** {title} ({year})")
-    schedule_deletion(context.bot, message.chat_id, msg_ok.message_id, 30)
+    schedule_deletion(context.bot, message.chat_id, msg_ok.message_id, 10)
+    
+    # Clean up User's Video Message (Ghost Mode)
+    try:
+        await message.delete()
+    except Exception as e:
+        logger.warning(f"Could not delete user message: {e}")
 
 
 # --- ENTRY POINTS ---
