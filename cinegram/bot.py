@@ -11,6 +11,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+
+
+import requests
+
+def check_ollama_health():
+    """Checks if Ollama is running locally."""
+    url = "http://localhost:11434/api/tags"
+    try:
+        response = requests.get(url, timeout=2)
+        if response.status_code == 200:
+            logging.info("✅ Ollama is Online.")
+            return True
+    except Exception:
+        pass
+    logging.warning("⚠️ WARNING: Ollama is NOT reachable. AI features will fail.")
+    return False
+
 def main():
     if not settings.BOT_TOKEN:
         print("Error: BOT_TOKEN not found in environment variables.")
@@ -48,6 +65,7 @@ def main():
     application.add_handler(MessageHandler(filters.Entity("url") | filters.Regex(r'^http'), auth_handler.auth_required(external_handler.handle_external_link)))
 
     print("Bot is running...")
+    check_ollama_health()
     application.run_polling()
 
 if __name__ == '__main__':

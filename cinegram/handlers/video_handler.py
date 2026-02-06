@@ -5,16 +5,18 @@ from cinegram.services.image_generator import ImageGenerator
 from cinegram.config import settings
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-# State definitions for Conversation (if we used full convo, but here we use simple flow)
-# For simplicity in this 'v1' extension, we'll try a 'reply to this message with details' approach 
-# or a simplified 'Send Metadata' command if we want state.
-# However, the user asked for: "El bot detecta... Te pide o infiere".
-# So a ConversationHandler is best.
+# Concurrency Control
+_SEMAPHORE = None
 
-from cinegram.utils.helpers import schedule_deletion
+def get_semaphore():
+    global _SEMAPHORE
+    if _SEMAPHORE is None:
+        _SEMAPHORE = asyncio.Semaphore(5)
+    return _SEMAPHORE
 
 # --- REFACTORED SHARED LOGIC ---
 
@@ -95,86 +97,87 @@ async def process_movie_upload(update: Update, context: ContextTypes.DEFAULT_TYP
     schedule_deletion(context.bot, message.chat_id, msg_gen.message_id)
 
     poster_url = TmdbService.get_poster_url(poster_path)
-    output_path = os.path.join(settings.TEMP_DIR, f"{video.file_id}.jpg")
+    # Use output_path definition early to ensure we track it
+    image_path = None
     
     try:
-        # Legacy ImageGenerator might need update or we use the basic one?
-        # The user said "haz el cambio en ambos bots", assuming he means the *feature* of manual correction.
-        # But wait, the ImageGenerator signature in Legacy might be different?
-        # Checking imports... from cinegram.services.image_generator import ImageGenerator
-        # I should check if ImageGenerator in legacy bot supports the new args.
-        # Safest is to use the old method signature if I haven't updated ImageGenerator here.
-        # But 'process_manual_correction' implies better accuracy.
-        # I'll stick to the OLD signature for now to avoid breaking if ImageGenerator wasn't updated.
-        image_path = ImageGenerator.generate_poster(poster_url, title, description)
-    except Exception as e:
-        logger.error(f"Poster error: {e}")
-        await message.reply_text("❌ Error generando portada.")
-        return
-
-    # --- 5. PUBLISH ---
-    import asyncio
-    from telegram.error import RetryAfter
-
-    # Send Photo
-    if image_path and os.path.exists(image_path):
-        while True:
-            try:
-                with open(image_path, 'rb') as photo:
-                    await context.bot.send_photo(chat_id=channel_id, photo=photo)
-                break
-            except RetryAfter as e:
-                await asyncio.sleep(e.retry_after)
-            except Exception:
-                break
-
-    # Prepare Caption
-    hashtag_list = []
-    if genre:
-        g_list = [g.strip() for g in genre.split(',')]
-        for g in g_list[:3]:
-            clean_tag = "".join(word.capitalize() for word in g.split())
-            hashtag_list.append(f"#{clean_tag}")
-    hashtags = " ".join(hashtag_list)
-    
-    caption = (
-        f"🎬 *Película:* {title}\n"
-        f"📅 *Año:* {year}\n"
-        f"🌎 *Idioma:* Latino 🇨🇴🇲🇽\n"
-        f"💿 *Calidad:* HD\n"
-        f"⭐ *Calificación:* {rating}\n"
-        f"🎭 *Género:* {genre}\n\n"
-        f"📝 *Sinopsis:*\n{description[:800]}...\n\n"
-        f"{hashtags}\n\n"
-        f"🔗 *Síguenos en Instagram:*"
-    )
-    
-    keyboard = [[InlineKeyboardButton("📸 Instagram", url=instagram_url)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Send Video
-    while True:
         try:
-            await context.bot.send_video(chat_id=channel_id, video=video.file_id, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
-            break
-        except RetryAfter as e:
-            msg_w = await message.reply_text(f"⏳ Esperando {e.retry_after}s (Flood Control)...")
-            schedule_deletion(context.bot, message.chat_id, msg_w.message_id, e.retry_after)
-            await asyncio.sleep(e.retry_after)
+            image_path = ImageGenerator.generate_poster(poster_url, title, description)
         except Exception as e:
-            await message.reply_text(f"❌ Error enviando video: {e}")
+            logger.error(f"Poster error: {e}")
+            await message.reply_text("❌ Error generando portada.")
             return
 
-    # Success
-    # Success
-    msg_ok = await message.reply_text(f"✅ **Publicado:** {title} ({year})")
-    schedule_deletion(context.bot, message.chat_id, msg_ok.message_id, 10)
-    
-    # Clean up User's Video Message (Ghost Mode)
-    try:
-        await message.delete()
-    except Exception as e:
-        logger.warning(f"Could not delete user message: {e}")
+        # --- 5. PUBLISH ---
+        from telegram.error import RetryAfter
+
+        # Send Photo
+        if image_path and os.path.exists(image_path):
+            while True:
+                try:
+                    with open(image_path, 'rb') as photo:
+                        await context.bot.send_photo(chat_id=channel_id, photo=photo)
+                    break
+                except RetryAfter as e:
+                    await asyncio.sleep(e.retry_after)
+                except Exception:
+                    break
+
+        # Prepare Caption
+        hashtag_list = []
+        if genre:
+            g_list = [g.strip() for g in genre.split(',')]
+            for g in g_list[:3]:
+                clean_tag = "".join(word.capitalize() for word in g.split())
+                hashtag_list.append(f"#{clean_tag}")
+        hashtags = " ".join(hashtag_list)
+        
+        caption = (
+            f"🎬 *Película:* {title}\n"
+            f"📅 *Año:* {year}\n"
+            f"🌎 *Idioma:* Latino 🇨🇴🇲🇽\n"
+            f"💿 *Calidad:* HD\n"
+            f"⭐ *Calificación:* {rating}\n"
+            f"🎭 *Género:* {genre}\n\n"
+            f"📝 *Sinopsis:*\n{description[:800]}...\n\n"
+            f"{hashtags}\n\n"
+            f"🔗 *Síguenos en Instagram:*"
+        )
+        
+        keyboard = [[InlineKeyboardButton("📸 Instagram", url=instagram_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send Video
+        while True:
+            try:
+                await context.bot.send_video(chat_id=channel_id, video=video.file_id, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
+                break
+            except RetryAfter as e:
+                msg_w = await message.reply_text(f"⏳ Esperando {e.retry_after}s (Flood Control)...")
+                schedule_deletion(context.bot, message.chat_id, msg_w.message_id, e.retry_after)
+                await asyncio.sleep(e.retry_after)
+            except Exception as e:
+                await message.reply_text(f"❌ Error enviando video: {e}")
+                return
+
+        # Success
+        msg_ok = await message.reply_text(f"✅ **Publicado:** {title} ({year})")
+        schedule_deletion(context.bot, message.chat_id, msg_ok.message_id, 10)
+        
+        # Clean up User's Video Message (Ghost Mode)
+        try:
+            await message.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete user message: {e}")
+
+    finally:
+        # Cleanup Temp Image
+        if image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+                logger.info(f"Cleaned up temp image: {image_path}")
+            except Exception as e:
+                logger.error(f"Failed to cleanup image {image_path}: {e}")
 
 
 # --- ENTRY POINTS ---
@@ -252,11 +255,14 @@ async def video_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Call Shared Logic
-    await process_movie_upload(
-        update, context, message, video, 
-        search_title=source_title, 
-        extracted_year=source_year
-    )
+    # Call Shared Logic
+    # Use Semaphore to limit concurrency
+    async with get_semaphore():
+        await process_movie_upload(
+            update, context, message, video, 
+            search_title=source_title, 
+            extracted_year=source_year
+        )
 
 async def handle_manual_correction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -294,8 +300,9 @@ async def handle_manual_correction(update: Update, context: ContextTypes.DEFAULT
     
     await message.reply_text(f"🔄 **Reintentando con:** {search_title} ...")
     
-    await process_movie_upload(
-        update, context, message, video, 
-        search_title=search_title, 
-        extracted_year=year
-    )
+    async with get_semaphore():
+        await process_movie_upload(
+            update, context, message, video, 
+            search_title=search_title, 
+            extracted_year=year
+        )

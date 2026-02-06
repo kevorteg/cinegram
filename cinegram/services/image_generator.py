@@ -14,7 +14,7 @@ class ImageGenerator:
         """
         # 1. Download or Load Image
         try:
-            response = requests.get(image_url)
+            response = requests.get(image_url, timeout=10)
             response.raise_for_status()
             img = Image.open(BytesIO(response.content)).convert("RGBA")
         except Exception as e:

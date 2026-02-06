@@ -29,8 +29,16 @@ class TmdbService:
         if year:
             params["year"] = year
 
+        if year:
+            params["year"] = year
+
+        # Session with Retry Strategy
+        session = requests.Session()
+        retries = requests.adapters.HTTPAdapter(max_retries=3)
+        session.mount('https://', retries)
+
         try:
-            response = requests.get(url, params=params)
+            response = session.get(url, params=params, timeout=10)
             response.raise_for_status()
             results = response.json().get('results', [])
             
