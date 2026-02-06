@@ -15,11 +15,12 @@ CineGram autonomously processes video files, extracts metadata, translates synop
 
 This project utilizes a modular architecture designed for stability and autonomy.
 
-*   **Intelligent Parsing**: Uses `guessit` to accurately extract titles and years from complex filenames (e.g., handles `Movie.Title.2024.1080p.WEB-DL`).
+*   **AI Deep Search**: Uses **Local AI** to "read" filenames and captions when standard cleaning fails, handling spam and typos intelligently.
+*   **Smart Posters**: Generates cinema-style 16:9 posters with **Blurred Backgrounds** to prevent cropping faces.
+*   **Ghost Mode**: Automatically cleans up the chat by deleting user videos and self-destructing status messages after publishing.
 *   **Metadata Integration**: Fetches real-time data from **TMDB** (The Movie Database).
 *   **AI Translation**: Integrates **Ollama** (running locally) to translate English synopses to Latin American Spanish automatically.
 *   **Strict Validation**: Prevents publishing of incomplete content (missing poster or year).
-*   **Dynamic Watermarking**: Applies a custom "CINEGRAM" watermark or logo to generated posters using `Pillow`.
 *   **Direct Channel Publishing**: bypasses user forwarding and publishes processed content directly to the configured channel.
 
 ## Installation
